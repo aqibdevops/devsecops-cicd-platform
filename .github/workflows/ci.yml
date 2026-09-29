@@ -1,0 +1,35 @@
+name: enterprise-devsecops
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gitleaks/gitleaks-action@v2
+        env: {GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}}
+      - run: python -m pip install yamllint && yamllint .
+      - uses: hadolint/hadolint-action@v3.1.0
+        with: {dockerfile: Dockerfile}
+      - uses: bridgecrewio/checkov-action@v12
+        with: {directory: ., quiet: true}
+      - run: docker build -t portfolio/devsecops:${{ github.sha }} .
+      - run: bash tests/pipeline_test.sh
+      - uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: portfolio/devsecops:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: 1
+      - uses: anchore/sbom-action@v0
+        with:
+          image: portfolio/devsecops:${{ github.sha }}
+          artifact-name: sbom.spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: sbom.spdx.json
